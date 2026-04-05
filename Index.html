@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>School Confessions</title>
+
+<style>
+body {
+  margin:0;
+  font-family:Arial;
+  background:linear-gradient(135deg,#ff9a9e,#a18cd1);
+}
+.container {
+  max-width:600px;
+  margin:auto;
+  padding:10px;
+}
+h2 {
+  color:white;
+  text-align:center;
+}
+.card {
+  background:white;
+  padding:12px;
+  border-radius:15px;
+  margin-bottom:10px;
+}
+textarea,input,select {
+  width:100%;
+  padding:10px;
+  border-radius:8px;
+  margin-top:5px;
+}
+button {
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  background:#a18cd1;
+  color:white;
+  margin-top:5px;
+}
+.hot {
+  color:orange;
+  font-weight:bold;
+}
+.comment {
+  font-size:13px;
+  margin-top:5px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>💌 School Confessions</h2>
+
+<div class="card">
+<textarea id="text" placeholder="Write something..."></textarea>
+
+<select id="category">
+<option>Crush</option>
+<option>Funny</option>
+<option>Exams</option>
+<option>Feelings</option>
+<option>Other</option>
+</select>
+
+<button onclick="post()">Post</button>
+<p id="msg"></p>
+</div>
+
+<div class="card">
+<b>🔥 Trending Today</b>
+<div id="trending"></div>
+</div>
+
+<div id="feed"></div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+<script>
+// 🔑 CONFIG
+const SUPABASE_URL = "YOUR_SUPABASE_URL";
+const SUPABASE_KEY = "YOUR_SUPABASE_KEY";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// 🧠 USER ID
+function getUser(){
+  let id = localStorage.getItem("uid");
+  if(!id){
+    id = "u_" + Math.random().toString(36).slice(2);
+    localStorage.setItem("uid",id);
+  }
+  return id;
+}
+
+// 🧼 SMART DARIJA FILTER
+const badPatterns = [
+/z[a@]m[e3]l/i,
+/9a[h7]ba/i,
+/zbi/i,
+/qwad/i,
+/m9w[a@]da/i,
+/klb/i,
+/hmar/i
+];
+
+function clean(text){
+  badPatterns.forEach(p=>{
+    text = text.replace(p,"***");
+  });
+  return text;
+}
+
+// ⏱️ COOLDOWN
+function cooldown(){
+  let last = localStorage.getItem("last_post");
+  if(last && Date.now() - last < 300000){
+    return false;
+  }
+  localStorage.setItem("last_post", Date.now());
+  return true;
+}
+
+// 🚀 POST CONFESSION
+async function post(){
+  let text = document.getElementById("text").value.trim();
+  let category = document.getElementById("category").value;
+  let user = getUser();
+
+  if(!text) return;
+
+  if(!cooldown()){
+    msg.innerText = "Wait 5 minutes before posting";
+    return;
+  }
+
+  // SERVER LIMIT (3/day)
+  let today = new Date().toISOString().split("T")[0];
+
+  const {data} = await db.from("confessions")
+    .select("*")
+    .eq("user_id", user)
+    .gte("created_at", today);
+
+  if(data.length >= 3){
+    msg.innerText = "Daily limit reached (3)";
+    return;
+  }
+
+  text = clean(text);
+
+  await db.from("confessions").insert([{
+    content: text,
+    category: category,
+    user_id: user
+  }]);
+
+  document.getElementById("text").value = "";
+  load();
+}
+
+// ❤️ LIKE
+async function like(id, likes){
+  await db.from("confessions")
+    .update({likes: likes + 1})
+    .eq("id", id);
+}
+
+// 🚨 REPORT
+async function report(id, reports){
+  await db.from("confessions")
+    .update({reports: reports + 1})
+    .eq("id", id);
+
+  alert("Reported");
+}
+
+// 🐱 RANDOM NAMES
+const names = [
+"Silent Fox","Mystery Cat","Ghost Owl",
+"Hidden Wolf","Secret Tiger"
+];
+
+// 💬 COMMENT
+async function comment(id){
+  let input = document.getElementById("input-"+id);
+  let text = input.value.trim();
+
+  if(!text) return;
+
+  text = clean(text);
+
+  let username = names[Math.floor(Math.random()*names.length)];
+
+  await db.from("comments").insert([{
+    confession_id: id,
+    content: text,
+    username: username
+  }]);
+
+  input.value="";
+  loadComments(id);
+}
+
+// 📥 LOAD COMMENTS
+async function loadComments(id){
+  const {data} = await db.from("comments")
+    .select("*")
+    .eq("confession_id", id);
+
+  let div = document.getElementById("comments-"+id);
+  div.innerHTML = "";
+
+  data.forEach(c=>{
+    div.innerHTML += `<div class="comment"><b>${c.username}:</b> ${c.content}</div>`;
+  });
+}
+
+// 📥 LOAD CONFESSIONS
+async function load(){
+  const {data} = await db.from("confessions")
+    .select("*")
+    .order("created_at",{ascending:false});
+
+  let feed = document.getElementById("feed");
+  feed.innerHTML = "";
+
+  data.forEach(c=>{
+    if(c.reports >= 5) return;
+
+    let hot = c.likes >= 5 ? "🔥 HOT" : "";
+
+    let div = document.createElement("div");
+    div.className = "card";
+
+    div.innerHTML = `
+      <p>${c.content}</p>
+      <small>${c.category} ${hot}</small><br>
+
+      ❤️ ${c.likes}
+      <button onclick="like('${c.id}',${c.likes})">Like</button>
+      <button onclick="report('${c.id}',${c.reports || 0})">Report</button>
+
+      <div id="comments-${c.id}"></div>
+
+      <input id="input-${c.id}" placeholder="Reply...">
+      <button onclick="comment('${c.id}')">Send</button>
+    `;
+
+    feed.appendChild(div);
+    loadComments(c.id);
+  });
+
+  // TRENDING
+  let today = new Date().toISOString().split("T")[0];
+
+  const {data:trend} = await db.from("confessions")
+    .select("*")
+    .gte("created_at", today)
+    .order("likes",{ascending:false})
+    .limit(3);
+
+  let tdiv = document.getElementById("trending");
+  tdiv.innerHTML = "";
+
+  trend.forEach(c=>{
+    tdiv.innerHTML += `<div class="hot">${c.content}</div>`;
+  });
+}
+
+// 🔴 AUTO REFRESH
+setInterval(load, 5000);
+
+// INIT
+load();
+</script>
+
+</body>
+  </html>
